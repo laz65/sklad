@@ -1,0 +1,286 @@
+﻿Добавим Apache в автозагрузку:
+
+chkconfig --level 2345 httpd on
+(# chkconfig --list    - просмотр автозагрузки,)
+
+
+В файлe
+vi /etc/httpd/conf/httpd.conf # добавляем строку:
+
+ 
+AddType application/x-httpd-php .php .html .htm
+
+и меняем:
+User apache
+Group root
+
+Для входа на сервер под паролем
+добавляем строки в секцию
+<Directory "/var/www/html"> 
+(вместо AllowOverride None):
+
+    AuthName "Autoinformator"
+    AuthType Basic
+    Require valid-user
+    AuthUserFile /var/www/html/.htpasswd
+    AllowOverride all
+
+выходим:
+
+:wq
+
+создаем файл с паролем: 
+
+htpasswd -bc /var/www/sklad/.htpasswd Имя_пользавателя Пароль
+
+для добавления пользователя
+
+htpasswd -b /var/www/sklad/.htpasswd Имя_пользавателя Пароль
+
+
+строки: 
+
+<Directory "/var/www/bezpeka">
+    Options Indexes MultiViews
+    AllowOverride None
+    Order allow,deny
+    Allow from all
+</Directory>
+
+это значит что есть  узел "безпека"
+
+Мой узел склада:
+
+<Directory "/var/www/sklad">
+    Options Indexes MultiViews
+    AuthName "Ushet_remonta"
+    AuthType Basic
+    Require valid-user
+    AuthUserFile /var/www/sklad/.htpasswd
+    AllowOverride all
+    Order allow,deny
+    Allow from all
+</Directory>
+
+
+
+
+После сохранения и создания нужных каталогов:
+
+устанавлиаем собственника
+
+chown -R apache /var/www/
+
+service httpd restart
+
+
+
+Для входа по ftp:
+
+Установка сервера FTP
+
+yum --disablerepo=\* --enablerepo=c5-media install -y vsftpd
+
+chkconfig --level 2345 vsftpd on
+
+useradd -d /var/www/sklad -m sklad
+
+passwd sklad
+
+проверить, чтобы в файле /etc/passwd юзер sklad был /sbin/nologin
+
+Пароль для ftp - sklad22 
+
+chown -R sklad /var/www/sklad
+
+разрешить доступ через ftpd к домашним директориям.
+
+vi /etc/vsftpd/vsftpd.conf
+добавить строку: 
+chroot_local_user=YES
+
+
+setsebool -P ftp_home_dir 1
+setsebool -P allow_ftpd_full_access 1
+modprobe ip_conntrack_ftp 
+
+
+setsebool -P httpd_disable_trans 1
+
+usermod -g root apache
+
+service httpd restart
+chmod 777 /var/www/sklad
+
+
+Запустить 
+visudo
+
+Добавить после
+root    ALL=(ALL)       ALL
+apache  ALL=(ALL)        NOPASSWD: ALL
+
+Заменить 
+Default  requiretty 
+на 
+Default !requiretty 
+
+добавим в файл:
+vi /etc/rc.local
+
+modprobe ip_conntrack_ftp 
+
+service vsftpd restart
+
+
+Теперь с базами данных:
+
+
+создаем пользователя базы:
+su - postgres
+createuser -P
+
+*********************************************************************
+Enter name of user to add: sklad
+Enter password for new user:12345
+Enter it again:12345
+Shall the new role be a superuser? (y/n) n
+Shall the new user be allowed to create databases? (y/n) y
+Shall the new user be allowed to create more new users? (y/n) n
+CREATE USER
+
+в файле
+vi /var/lib/pgsql/data/postgresql.conf
+должно быть: 
+listen_addresses = '*' 
+max_connections = 100
+port = 5432  (убираем #)
+
+ Теперь редактируем файл
+vi /var/lib/pgsql/data/pg_hba.conf
+ чтобы обеспечить возможность только что созданному пользователю asterisk устанавливать соединения с сервером PostgreSQL через TCP/IP. В конце 
+файла замените все под комментарием # :
+local  all  sklad                               		trust
+host   all  sklad  127.0.0.1  255.255.255.255   	md5
+***************************************************************************
+
+
+Создать базу данных sklad и задать   
+в качестве владельца нашего пользователя sklad.
+
+createdb --owner=sklad sklad
+
+CREATE DATABASE
+Выйдя из учетной записи postgres и вернувшись в административную 
+учетную запись, перезапустите сервер PostgreSQL:
+
+$ exit
+
+service postgresql restart
+
+
+
+
+
+
+
+
+
+
+Вход в postgreaql:
+
+psql -d sklad sklad
+
+
+Создаем таблицы:
+
+1)- centry - 0.номер 1.центры 2.города 
+2)- rabotniki - 0.номер 1.призвіще 2.логин
+3)- tipy - 0.номер 1.найменування обладнання
+4)- stan - 0.номер 1.стан
+5)- sklad - 0.номер п/п 1.дата прийому 2.хто прийняв 3.дата ост змін 4.стан 5.обладнання 6.модель 7.серійний номер 8.інвентарний номер 9.місто 10.центр 11.підрозділ 12.дата видачі 13.номер наряду 14.виконавець 15.видав 16.отримав 17.примітка 18.телефон 19.комплектність
+6)- kartridghy - 0.номер 1.принтер 2.картридж 3.заправлені 4.пусті 5.нові 6.на_заправці 7.дата_змін 
+
+
+CREATE SEQUENCE sklad_seq;
+CREATE TABLE sklad (
+    sklad_id integer NOT NULL DEFAULT nextval('sklad_seq'), data_priyom char (12),
+    prinav varchar(32), podav varchar(32),  data_izmen char (12), stan  varchar(32), tip  varchar(32), model varchar(32), ser varchar(32), inv varchar(32), misto varchar(32), centr varchar(32), viddil varchar(32), data_vidach char (12), nomer varchar(32), zrobiv varchar(32), vidav varchar(32), otrimav varchar(32), prim  varchar(256), telefon varchar[32], kompl varchar[32],  
+    PRIMARY KEY (sklad_id) );
+
+CREATE SEQUENCE centry_seq;
+CREATE TABLE centry (
+    centry_id  integer NOT NULL DEFAULT nextval('centry_seq'), centr varchar(32), misto varchar(32),  PRIMARY KEY (centry_id) );
+
+CREATE SEQUENCE rabotniki_seq;
+CREATE TABLE rabotniki (
+    rabotniki_id  integer NOT NULL DEFAULT nextval('rabotniki_seq'), rabotnik varchar(32), login varchar(32), dostup integer not null default 0,  PRIMARY KEY (rabotniki_id) );
+
+CREATE SEQUENCE tipy_seq;
+CREATE TABLE tipy (
+    tipy_id  integer NOT NULL DEFAULT nextval('tipy_seq'), tip varchar(32),  PRIMARY KEY (tipy_id) );
+	
+CREATE SEQUENCE stan_seq;
+CREATE TABLE stan (
+    stan_id  integer NOT NULL DEFAULT nextval('stan_seq'), stan varchar(32),  PRIMARY KEY (stan_id) );
+
+CREATE SEQUENCE kartridghy_seq;
+CREATE TABLE kartridghy (
+    kartridghy_id integer NOT NULL DEFAULT nextval('kartridghy_seq'), printer varchar(256), kartridgh varchar(256), povni integer, pusti integer, novi integer, zapravka integer, data_zmin char(12),
+    PRIMARY KEY (kartridghy_id) );
+
+CREATE SEQUENCE kart_hist_seq;
+CREATE TABLE kart_hist (
+    kart_hist_id  integer NOT NULL DEFAULT nextval('kart_hist_seq'), kart_hist varchar(256), data_zmin char(12), rabotnik varchar(32), PRIMARY KEY (kart_hist_id) );
+
+CREATE SEQUENCE cartlist_seq;
+CREATE TABLE cartlist
+(
+  id integer NOT NULL DEFAULT nextval('cartlist_seq'::regclass),
+  modelcart character varying(255),
+  nomenklnumber character varying(18),
+  resurs integer,
+  CONSTRAINT "CartList_pkey" PRIMARY KEY (id )
+)
+
+CREATE SEQUENCE printlist_seq;
+CREATE TABLE printlist
+(
+  id integer NOT NULL DEFAULT nextval('printlist_seq'::regclass),
+  coderesurs character varying(12),
+  modelprinter character varying(255),
+  tonerb integer,
+  tonerc integer,
+  tonerm integer,
+  tonery integer,
+  tonercl integer,
+  drumb integer,
+  drumc integer,
+  drumm integer,
+  drumy integer,
+  CONSTRAINT "PrintList_pkey" PRIMARY KEY (id )
+)
+
+CREATE SEQUENCE changelist_seq;
+CREATE TABLE changelist
+(
+  id integer NOT NULL DEFAULT nextval('changelist_seq'::regclass),
+  yy integer,
+  mm integer,
+  dd integer,
+  invnumber integer,
+  modelprint integer,
+  cart integer,
+  workerid integer,
+  pidrozdilid integer,
+  nodelete boolean NOT NULL DEFAULT false,
+  CONSTRAINT "ChangeList_pkey" PRIMARY KEY (id )
+)
+
+INSERT INTO rabotniki( rabotnik, login) VALUES 
+('Лазебник', 'lazebn');
+('Коваль', 'koval');
+
+
+
+
